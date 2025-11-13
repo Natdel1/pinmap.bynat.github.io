@@ -10,6 +10,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- ✨ [NEW] Load Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- ✨ [NEW] Load Chart.js Zoom Plugin (โหลดปลั๊กอินสำหรับซูม) -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     <style>
       /* Tooltip styles */
       .box .tooltip {
@@ -239,6 +241,32 @@
                     },
                   },
                 },
+                // ✨ [NEW] Add zoom configuration (เพิ่มการตั้งค่าการซูม)
+                zoom: {
+                  pan: {
+                    enabled: true, // เปิดใช้งานการแพน (ลาก)
+                    mode: 'x', // แพนเฉพาะแกน X
+                    threshold: 10, // ต้องลากอย่างน้อย 10px ถึงจะเริ่มแพน
+                  },
+                  zoom: {
+                    wheel: {
+                      enabled: true, // ซูมด้วยลูกกลิ้งเมาส์
+                    },
+                    pinch: {
+                      enabled: true, // ซูมด้วยการบีบนิ้ว (จอสัมผัส)
+                    },
+                    drag: {
+                      // ซูมด้วยการลากคลุมพื้นที่
+                      enabled: true,
+                      backgroundColor: 'rgba(0,123,255,0.2)', // สีของพื้นที่ที่เลือก
+                    },
+                    mode: 'x', // ซูมเฉพาะแกน X
+                  },
+                  limits: {
+                    // จำกัดการซูม/แพน ให้อยู่ในขอบเขต
+                    x: { min: 1, max: 400 },
+                  },
+                },
               },
               scales: {
                 x: {
@@ -253,6 +281,10 @@
                   ticks: {
                     stepSize: 50, // Show ticks every 50 pins
                     color: '#333', // [Change] Dark tick color
+                    // ✨ [NEW] Format ticks as integers (ปัดเศษเป็นจำนวนเต็ม)
+                    callback: function (value, index, values) {
+                      return Math.round(value);
+                    },
                   },
                   grid: {
                     color: '#CCC', // [Change] Lighter grid line color for light bg
