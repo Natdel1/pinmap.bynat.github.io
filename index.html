@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<!-- [Change] Set language to English -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- [Change] Translated Title -->
+    <title>Current Monitor (Searay - Auto Detect)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ✨ [NEW] Load Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      /* Tooltip styles */
+      .box .tooltip {
+        visibility: hidden;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+      .box:hover .tooltip {
+        visibility: visible;
+        opacity: 1;
+      }
+      /* Grid Wrapper styles for mobile scrolling */
+      .grid-wrapper {
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 8px; /* Padding for scrollbar */
+      }
+      .heatmap-grid {
+        /* Min-width = 40 cols * 20px/col (approx) */
+        min-width: 800px;
+        grid-template-columns: repeat(40, minmax(0, 1fr));
+      }
+    </style>
+  </head>
+  <body
+    class="bg-gray-900 min-h-screen p-4 sm:p-8 flex flex-col items-center font-sans"
+  >
+    <!-- Header and Title -->
+    <h1 class="text-3xl font-bold text-white mb-4">
+      Searay Connectors - Current Monitor
+    </h1>
+    <!-- [Change] Translated subtitle -->
+    <p class="text-gray-300 mb-6">
+      400 Pin (40x10) Current Display - Auto-Detecting Connectors
+    </p>
+
+    <!-- [Change] Translated Legend -->
+    <div
+      class="flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-4 mb-6 text-white bg-gray-800 p-4 rounded-lg w-full"
+      style="max-width: 1200px"
+    >
+      <span class="text-sm">Normal (0 nA)</span>
+      <!-- Gradient: from-red-100 (95%) to red-400 (60%) -->
+      <div
+        class="w-40 h-6 bg-gradient-to-r from-red-100 to-red-400 border border-gray-500 rounded"
+      ></div>
+      <span class="text-sm">(150 nA)</span>
+
+      <div class="flex items-center space-x-2 ml-4">
+        <div
+          class="w-6 h-6 rounded border border-gray-400"
+          style="background-color: hsl(0, 90%, 25%)"
+        ></div>
+        <span class="text-sm sm:text-base">High Current (> 150 nA)</span>
+      </div>
+    </div>
+
+    <!-- Data Loader Section -->
+    <div
+      id="data-loader-section"
+      class="w-full p-4 bg-gray-800 rounded-lg text-center"
+      style="max-width: 1200px"
+    >
+      <!-- [Change] Translated label -->
+      <label
+        for="csv-file-input"
+        class="block text-lg font-medium text-white mb-3"
+        >Upload CSV Data File (Single file with all connectors)</label
+      >
+      <input
+        type="file"
+        id="csv-file-input"
+        accept=".csv"
+        class="block w-full max-w-sm mx-auto text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+      />
+      <p id="file-status" class="text-yellow-400 mt-3"></p>
+    </div>
+
+    <!-- Dynamic Connector Select Section -->
+    <div
+      id="connector-select-section"
+      class="w-full p-4 bg-gray-800 rounded-lg text-center mb-4 mt-4"
+      style="max-width: 1200px; display: none"
+    >
+      <!-- [Change] Translated label -->
+      <label
+        for="connector-select"
+        class="block text-lg font-medium text-white mb-3"
+        >Please select a detected connector</label
+      >
+      <select
+        id="connector-select"
+        class="bg-gray-700 text-white p-2 rounded-lg"
+      >
+        <!-- Options will be added by JavaScript -->
+      </select>
+    </div>
+
+    <!-- Dynamic Heatmap Container -->
+    <div id="heatmap-container" class="w-full" style="max-width: 1200px">
+      <!-- Heatmaps will be added by JavaScript -->
+    </div>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        // --- UI Elements ---
+        const csvFileInput = document.getElementById('csv-file-input');
+        const fileStatus = document.getElementById('file-status');
+        const connectorSelectSection = document.getElementById(
+          'connector-select-section'
+        );
+        const connectorSelect = document.getElementById('connector-select');
+        const heatmapContainer = document.getElementById('heatmap-container');
+
+        // --- Data Storage ---
+        let connectorDataStore = {};
+        // ✨ [NEW] Storage for chart instances
+        let chartInstances = {};
+
+        const ROWS = 10;
+        const COLS = 40;
+        const TOTAL_BOXES = ROWS * COLS;
+
+        // --- Color Scale Constant ---
+        const HIGH_CURRENT_THRESHOLD = 150e-9; // 150 nA
+
+        /**
+         * Calculates color based on mixed conditions
+         * @param {number|null} value - The current value
+         * @returns {string} - HSL color string
+         */
+        function getColorForValue(value) {
+          if (value === null) {
+            return 'hsl(0, 0%, 100%)'; // White for N/A
+          }
+
+          const absValue = Math.abs(value);
+
+          // Mixed logic
+          if (absValue > HIGH_CURRENT_THRESHOLD) {
+            // 1. Over 150 nA (Special dark red)
+            return 'hsl(0, 90%, 25%)';
+          } else {
+            // 2. 0 - 150 nA (Light gradient)
+
+            // Light scale: 0 nA = 95% Lightness, 150 nA = 60% Lightness
+            const maxLightness = 95; // Lightest (at 0 nA)
+            const minLightness = 60; // Darkest in normal range (at 150 nA)
+
+            // Calculate percentage against 150 nA
+            const percent = absValue / HIGH_CURRENT_THRESHOLD; // (Value 0.0 to 1.0)
+
+            // Invert mapping: higher percent -> lower lightness
+            const lightness =
+              maxLightness - percent * (maxLightness - minLightness);
+
+            return `hsl(0, 90%, ${lightness}%)`;
+          }
+        }
+
+        /**
+         * ✨ [NEW] Draws the bar chart for the connector
+         * @param {string} connectorName
+         * @param {string} canvasId
+         */
+        function drawChart(connectorName, canvasId) {
+          const dataObject = connectorDataStore[connectorName];
+          if (!dataObject) return;
+
+          const data = dataObject.data;
+          const labels = Array.from({ length: TOTAL_BOXES }, (_, i) => i + 1);
+
+          // Convert data to nA for the chart
+          const chartData = data.map((v) =>
+            v === null ? 0 : Math.abs(v * 1e9)
+          );
+
+          // ✨ [CHANGE] Use a new color logic for chart bars for better visibility
+          const chartBackgroundColors = data.map((v) => {
+            if (v === null) return 'hsl(220, 10%, 80%)'; // Gray for N/A
+            const absValue = Math.abs(v);
+            if (absValue > HIGH_CURRENT_THRESHOLD) {
+              return 'hsl(0, 90%, 60%)'; // Bright Red for high current
+            }
+            // Normal range - use a blue
+            return 'hsl(210, 80%, 65%)'; // Standard blue
+          });
+
+          const ctx = document.getElementById(canvasId).getContext('2d');
+
+          // Destroy old chart if it exists
+          if (chartInstances[connectorName]) {
+            chartInstances[connectorName].destroy();
+          }
+
+          const newChart = new Chart(ctx, {
+            type: 'bar', // Bar chart
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  label: 'Current (nA)',
+                  data: chartData,
+                  backgroundColor: chartBackgroundColors, // [Change] Use new colors
+                  borderColor: '#555', // [Change] Set a visible border color
+                  borderWidth: 1,
+                  // Make bars touch each other
+                  barPercentage: 1.0,
+                  categoryPercentage: 1.0,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false, // Fit to container height
+              plugins: {
+                legend: {
+                  display: false, // Hide legend (too noisy)
+                },
+                tooltip: {
+                  callbacks: {
+                    title: function (context) {
+                      return `Pin ${context[0].label}`;
+                    },
+                    label: function (context) {
+                      return `Current: ${context.parsed.y.toFixed(2)} nA`;
+                    },
+                  },
+                },
+              },
+              scales: {
+                x: {
+                  type: 'linear', // Use a linear scale for 400 pins
+                  title: {
+                    display: true,
+                    text: 'Pin Number (1-400)',
+                    color: '#111', // [Change] Dark text color for light bg
+                  },
+                  min: 1,
+                  max: 400,
+                  ticks: {
+                    stepSize: 50, // Show ticks every 50 pins
+                    color: '#333', // [Change] Dark tick color
+                  },
+                  grid: {
+                    color: '#CCC', // [Change] Lighter grid line color for light bg
+                  },
+                },
+                y: {
+                  title: {
+                    display: true,
+                    text: 'Current (nA)',
+                    color: '#111', // [Change] Dark text color for light bg
+                  },
+                  beginAtZero: true,
+                  ticks: {
+                    color: '#333', // [Change] Dark tick color
+                  },
+                  grid: {
+                    color: '#CCC', // [Change] Lighter grid line color for light bg
+                  },
+                },
+              },
+            },
+          });
+          chartInstances[connectorName] = newChart;
+        }
+
+        /**
+         * Creates and draws a heatmap grid *and* chart for a connector
+         * @param {string} connectorName - The name (e.g., 'Searay PAL1')
+         * @param {HTMLElement} parentContainer - The parent element to append to
+         */
+        function createAndDrawHeatmap(connectorName, parentContainer) {
+          const dataObject = connectorDataStore[connectorName];
+          if (!dataObject) return;
+
+          const data = dataObject.data;
+          const safeConnectorName = connectorName.replace(/\s+/g, '-');
+
+          // 1. Create Heatmap Section
+          const heatmapSection = document.createElement('div');
+          heatmapSection.id = `heatmap-section-${safeConnectorName}`;
+          heatmapSection.className =
+            'bg-gray-400 p-1 sm:p-2 rounded-lg border-4 border-gray-500 shadow-xl mt-6';
+          heatmapSection.style.display = 'none'; // Hide by default
+
+          // 2. Create Title (H2)
+          const title = document.createElement('h2');
+          title.className = 'text-center text-xl font-bold text-black mb-2';
+          title.textContent = connectorName;
+          heatmapSection.appendChild(title);
+
+          // 3. Create Top Labels
+          const labelTop = document.createElement('div');
+          labelTop.className =
+            'flex justify-between w-full text-black font-mono text-xs sm:text-lg px-1 mb-1';
+          labelTop.innerHTML = '<span>10</span><span>400</span>';
+          heatmapSection.appendChild(labelTop);
+
+          // 4. Create Grid Wrapper (for scrolling)
+          const gridWrapper = document.createElement('div');
+          gridWrapper.className = 'grid-wrapper';
+
+          // 5. Create Grid Container
+          const gridContainer = document.createElement('div');
+          gridContainer.id = `grid-container-${safeConnectorName}`;
+          gridContainer.className = 'grid gap-0.5 bg-gray-700 heatmap-grid';
+
+          // --- Start drawing boxes ---
+          const gridCells = Array(ROWS)
+            .fill(null)
+            .map(() => Array(COLS).fill(null));
+
+          for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+              const box = document.createElement('div');
+              box.style.paddingBottom = '100%'; // Aspect ratio 1:1
+              box.classList.add('w-full', 'relative', 'box');
+              gridCells[r][c] = box;
+              gridContainer.appendChild(box);
+            }
+          }
+
+          // Map data (Pin 1-400) to grid cells
+          for (let pin = 1; pin <= TOTAL_BOXES; pin++) {
+            const value = data[pin - 1];
+
+            const c_idx = Math.floor((pin - 1) / ROWS); // Col (0-39)
+            const r_raw = (pin - 1) % ROWS; // Row (0-9, from bottom)
+            const r_idx = ROWS - 1 - r_raw; // Row (9-0, from top)
+
+            if (r_idx < 0 || r_idx >= ROWS || c_idx < 0 || c_idx >= COLS) {
+              console.warn(
+                `Invalid index for pin ${pin}: r_idx=${r_idx}, c_idx=${c_idx}`
+              );
+              continue;
+            }
+
+            if (!gridCells[r_idx] || !gridCells[r_idx][c_idx]) {
+              console.error(
+                `Grid cell not found for pin ${pin} at [${r_idx}][${c_idx}]`
+              );
+              continue;
+            }
+
+            const box = gridCells[r_idx][c_idx];
+            box.style.backgroundColor = getColorForValue(value);
+
+            // Add Tooltip
+            const tooltip = document.createElement('span');
+            tooltip.classList.add(
+              'tooltip',
+              'absolute',
+              'bg-gray-800',
+              'text-white',
+              'text-xs',
+              'p-1',
+              'rounded',
+              'z-10',
+              'bottom-full',
+              'left-1/2',
+              '-translate-x-1/2',
+              'mb-1',
+              'whitespace-nowrap',
+              'pointer-events-none'
+            );
+
+            let displayValue = 'N/A';
+            if (value !== null) {
+              if (Math.abs(value) < 1e-3 && value !== 0) {
+                displayValue = value.toExponential(2);
+              } else {
+                // Display value in nA
+                displayValue = (value * 1e9).toFixed(2) + ' nA';
+              }
+            }
+
+            tooltip.textContent = `Pin ${pin}: ${displayValue}`;
+            box.appendChild(tooltip);
+          }
+          // --- End drawing boxes ---
+
+          gridWrapper.appendChild(gridContainer);
+          heatmapSection.appendChild(gridWrapper);
+
+          // 6. Create Bottom Labels
+          const labelBottom = document.createElement('div');
+          labelBottom.className =
+            'flex justify-between w-full text-black font-mono text-xs sm:text-lg px-1 mt-1';
+          labelBottom.innerHTML = '<span>1</span><span>391</span>';
+          heatmapSection.appendChild(labelBottom);
+
+          // ✨ [NEW] 7. Create Chart Container
+          const chartTitle = document.createElement('h3');
+          chartTitle.className =
+            'text-center text-lg font-bold text-black mt-6 mb-2';
+          chartTitle.textContent = `${connectorName} - Current Chart`;
+          heatmapSection.appendChild(chartTitle);
+
+          const chartContainer = document.createElement('div');
+          // Set fixed height for chart area, make it relative
+          chartContainer.className =
+            'relative w-full h-80 bg-gray-300 p-2 rounded';
+
+          const canvas = document.createElement('canvas');
+          canvas.id = `chart-canvas-${safeConnectorName}`;
+          chartContainer.appendChild(canvas);
+          heatmapSection.appendChild(chartContainer);
+
+          // 8. Add heatmap section to page
+          parentContainer.appendChild(heatmapSection);
+
+          // ✨ [NEW] 9. Draw the chart
+          // We call this *after* the section is added to the DOM (even if hidden)
+          drawChart(connectorName, canvas.id);
+        }
+
+        /**
+         * Processes the uploaded CSV content
+         * @param {string} csvContent - The raw CSV text
+         * @returns {object} - { "Searay PAL1": { data: [...], max: 0.0, pins: 400 }, ... }
+         */
+        function parseCSV(csvContent) {
+          const data = [[]];
+          let inQuote = false;
+          let currentCell = '';
+          let content = csvContent.replace(/^\uFEFF/, ''); // Normalize
+
+          for (let i = 0; i < content.length; i++) {
+            const char = content[i];
+            if (inQuote) {
+              if (char === '"') {
+                if (content[i + 1] === '"') {
+                  currentCell += '"';
+                  i++;
+                } else {
+                  inQuote = false;
+                }
+              } else {
+                currentCell += char;
+              }
+            } else {
+              if (char === '"') {
+                inQuote = true;
+              } else if (char === ',') {
+                data[data.length - 1].push(currentCell.trim());
+                currentCell = '';
+              } else if (char === '\n' || char === '\r') {
+                if (content[i + 1] === '\n' && char === '\r') i++;
+                data[data.length - 1].push(currentCell.trim());
+                currentCell = '';
+                if (
+                  i < content.length - 1 &&
+                  content[i + 1] !== '' &&
+                  content[i + 1] !== '\n' &&
+                  content[i + 1] !== '\r'
+                ) {
+                  data.push([]);
+                }
+              } else {
+                currentCell += char;
+              }
+            }
+          }
+          if (currentCell.length > 0) {
+            data[data.length - 1].push(currentCell.trim());
+          }
+
+          if (data.length < 2) {
+            // [Change] Translated error
+            throw new Error('CSV file is empty or contains only headers');
+          }
+
+          const headerRow = data[0];
+          const nameIndex = headerRow.indexOf('Measurement Name');
+          const valueIndex = headerRow.indexOf('Value');
+
+          if (nameIndex === -1 || valueIndex === -1) {
+            console.error('Headers found:', headerRow);
+            // [Change] Translated error
+            throw new Error(
+              `Could not find "Measurement Name" or "Value" columns in CSV file.`
+            );
+          }
+
+          // Regex to capture (Connector Name) Pin (Number)
+          const nameRegex = /^(Searay\s*[A-Z0-9]+)\s+Pin\s*(\d+)/i;
+
+          const parsedStore = {};
+          let totalPinsFound = 0;
+
+          for (let i = 1; i < data.length; i++) {
+            const row = data[i];
+            if (row.length <= Math.max(nameIndex, valueIndex)) continue;
+
+            const measurementName = row[nameIndex];
+            const valueString = row[valueIndex];
+
+            if (!measurementName || !valueString) continue;
+
+            const match = measurementName.match(nameRegex);
+
+            if (match && match[1] && match[2]) {
+              const connectorName = match[1].trim();
+              const pinNumber = parseInt(match[2], 10);
+              const value = parseFloat(valueString);
+
+              if (
+                pinNumber >= 1 &&
+                pinNumber <= TOTAL_BOXES &&
+                !isNaN(value)
+              ) {
+                if (!parsedStore[connectorName]) {
+                  parsedStore[connectorName] = {
+                    data: new Array(TOTAL_BOXES).fill(null),
+                    max: 0,
+                    pins: 0,
+                  };
+                }
+
+                parsedStore[connectorName].data[pinNumber - 1] = value;
+                parsedStore[connectorName].pins++;
+                totalPinsFound++;
+
+                const absValue = Math.abs(value);
+                if (absValue > parsedStore[connectorName].max) {
+                  parsedStore[connectorName].max = absValue;
+                }
+              }
+            }
+          }
+
+          if (totalPinsFound === 0) {
+            // [Change] Translated error
+            throw new Error(
+              "No matching Pin data found in CSV file (Format: 'Searay PAL1 Pin X...')"
+            );
+          }
+
+          return parsedStore;
+        }
+
+        /**
+         * Handles the file selection event
+         * @param {Event} event
+         */
+        function handleFileSelect(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+
+          // [Change] Translated status
+          fileStatus.textContent = `Processing file...`;
+
+          // Clear old data
+          connectorDataStore = {};
+          heatmapContainer.innerHTML = '';
+          connectorSelect.innerHTML = '';
+          connectorSelectSection.style.display = 'none';
+
+          // ✨ [NEW] Destroy all old chart instances
+          Object.values(chartInstances).forEach((chart) => chart.destroy());
+          chartInstances = {};
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const csvContent = e.target.result;
+              connectorDataStore = parseCSV(csvContent);
+
+              const connectorNames = Object.keys(connectorDataStore).sort();
+
+              if (connectorNames.length === 0) {
+                // [Change] Translated error
+                throw new Error('No valid connector data found in the file');
+              }
+
+              // [Change] Translated status
+              fileStatus.textContent = `Processing complete! Found ${connectorNames.length} connectors.`;
+
+              // Create Dropdown and Heatmaps
+              connectorNames.forEach((name, index) => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                connectorSelect.appendChild(option);
+
+                // This function now also creates the chart canvas and calls drawChart
+                createAndDrawHeatmap(name, heatmapContainer);
+              });
+
+              connectorSelectSection.style.display = 'block';
+              handleConnectorViewChange();
+            } catch (error) {
+              console.error('CSV Parsing Error:', error);
+              // [Change] Translated status
+              fileStatus.textContent = `Error: ${error.message}`;
+              connectorSelectSection.style.display = 'none';
+              heatmapContainer.innerHTML = '';
+            }
+          };
+
+          reader.onerror = () => {
+            // [Change] Translated status
+            fileStatus.textContent = 'Error reading file';
+          };
+
+          reader.readAsText(file);
+          event.target.value = null;
+        }
+
+        /**
+         * Handles switching the visible heatmap
+         */
+        function handleConnectorViewChange() {
+          const selectedConnectorName = connectorSelect.value;
+          if (!selectedConnectorName) return;
+
+          // Hide all heatmaps
+          const allHeatmaps =
+            heatmapContainer.querySelectorAll('.bg-gray-400');
+          allHeatmaps.forEach((map) => {
+            map.style.display = 'none';
+          });
+
+          // Show the selected one
+          const targetID = `heatmap-section-${selectedConnectorName.replace(
+            /\s+/g,
+            '-'
+          )}`;
+          const targetHeatmap = document.getElementById(targetID);
+          if (targetHeatmap) {
+            targetHeatmap.style.display = 'block';
+          }
+        }
+
+        // --- Add Event Listeners ---
+        csvFileInput.addEventListener('change', handleFileSelect);
+        connectorSelect.addEventListener('change', handleConnectorViewChange);
+      });
+    </script>
+  </body>
+</html>
