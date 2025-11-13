@@ -34,6 +34,24 @@
         min-width: 800px;
         grid-template-columns: repeat(40, minmax(0, 1fr));
       }
+
+      /* ✨ [NEW] Add blinking animation for high current (เพิ่ม CSS สำหรับการกระพริบ) */
+      @keyframes blink {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4; /* ทำให้จางลง */
+        }
+      }
+
+      .blink-high-current {
+        animation: blink 1s linear infinite;
+        /* เพิ่มเส้นขอบสีเหลืองเพื่อให้เด่นชัดขึ้น */
+        outline: 1px solid rgba(255, 255, 0, 0.7);
+        outline-offset: -1px; /* ให้เส้นขอบอยู่ด้านใน */
+      }
     </style>
   </head>
   <body
@@ -390,6 +408,11 @@
 
             const box = gridCells[r_idx][c_idx];
             box.style.backgroundColor = getColorForValue(value);
+
+            // ✨ [NEW] Add blinking class if current is high (เพิ่มคลาสให้กระพริบถ้าค่าสูง)
+            if (value !== null && Math.abs(value) > HIGH_CURRENT_THRESHOLD) {
+              box.classList.add('blink-high-current');
+            }
 
             // Add Tooltip
             const tooltip = document.createElement('span');
