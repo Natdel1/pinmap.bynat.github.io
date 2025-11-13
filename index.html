@@ -13,6 +13,11 @@
     <!-- ✨ [NEW] Load Chart.js Zoom Plugin (โหลดปลั๊กอินสำหรับซูม) -->
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     <style>
+      /* ✨ [NEW] Add explicit relative positioning */
+      .box {
+        /* [Change] ลบ 'position: relative;' ออกจากสถานะปกติ */
+        /* position: relative; */
+      }
       /* Tooltip styles */
       .box .tooltip {
         visibility: hidden;
@@ -23,10 +28,16 @@
         visibility: visible;
         opacity: 1;
       }
+      /* ✨ [NEW] Bring the box forward on hover to prevent z-index issues */
+      .box:hover {
+        position: relative; /* ✨ [Change] เพิ่ม 'position: relative;' เข้ามาที่นี่ */
+        z-index: 1000; /* [Change] Aggressive z-index boost (เพิ่ม z-index ให้สูงมาก) */
+      }
       /* Grid Wrapper styles for mobile scrolling */
       .grid-wrapper {
         width: 100%;
         overflow-x: auto;
+        overflow-y: visible; /* ✨ [NEW] อนุญาตให้ tooltip ล้นออกมาในแนวตั้ง */
         padding-bottom: 8px; /* Padding for scrollbar */
       }
       .heatmap-grid {
@@ -344,7 +355,7 @@
           const heatmapSection = document.createElement('div');
           heatmapSection.id = `heatmap-section-${safeConnectorName}`;
           heatmapSection.className =
-            'bg-gray-400 p-1 sm:p-2 rounded-lg border-4 border-gray-500 shadow-xl mt-6';
+            'bg-gray-400 p-1 sm:p-2 rounded-lg border-4 border-gray-500 shadow-xl mt-6'; // ✨ [CHANGE] ลบ 'pt-8' ออกจากตรงนี้
           heatmapSection.style.display = 'none'; // Hide by default
 
           // 2. Create Title (H2)
@@ -362,7 +373,7 @@
 
           // 4. Create Grid Wrapper (for scrolling)
           const gridWrapper = document.createElement('div');
-          gridWrapper.className = 'grid-wrapper';
+          gridWrapper.className = 'grid-wrapper pt-8'; // ✨ [CHANGE] ย้าย 'pt-8' มาไว้ที่นี่แทน
 
           // 5. Create Grid Container
           const gridContainer = document.createElement('div');
@@ -424,7 +435,7 @@
               'text-xs',
               'p-1',
               'rounded',
-              'z-10',
+              'z-10', // [Change] This was z-10, will be overridden below
               'bottom-full',
               'left-1/2',
               '-translate-x-1/2',
@@ -432,6 +443,8 @@
               'whitespace-nowrap',
               'pointer-events-none'
             );
+            // ✨ [NEW] Set a very high z-index to ensure it's on top
+            tooltip.style.zIndex = '1001'; /* [Change] Aggressive z-index boost (เพิ่ม z-index ให้สูงมาก) */
 
             let displayValue = 'N/A';
             if (value !== null) {
